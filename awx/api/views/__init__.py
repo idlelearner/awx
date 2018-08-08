@@ -19,7 +19,7 @@ import six
 from django.conf import settings
 from django.core.exceptions import FieldError, ObjectDoesNotExist
 from django.db.models import Q, Count
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, transaction, connection
 from django.shortcuts import get_object_or_404
 from django.utils.encoding import smart_text
 from django.utils.safestring import mark_safe
@@ -3318,7 +3318,7 @@ class JobTemplateCallback(GenericAPIView):
         with transaction.atomic():
             job = job_template.create_job(**kv)
 
-        # Send a signal to celery that the job should be started.
+        # Send a signal to signify that the job should be started.
         result = job.signal_start(inventory_sources_already_updated=inventory_sources_already_updated)
         if not result:
             data = dict(msg=_('Error starting job!'))
