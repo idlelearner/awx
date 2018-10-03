@@ -25,7 +25,7 @@ class BaseTask(object):
         return add(a, b)
 
 
-@task
+@task()
 class Adder(BaseTask):
     def run(self, a, b):
         return super(Adder, self).add(a, b)
@@ -275,22 +275,6 @@ class TestTaskPublisher:
 
     def test_method_callable(self):
         assert Adder().run(2, 2) == 4
-
-    def test_function_decorator_usage(self):
-        with pytest.raises(RuntimeError) as e:
-            @task
-            def some_task():
-                pass
-            some_task()
-            assert 'use @task(), not @task' in str(e.value)
-
-    def test_class_decorator_usage(self):
-        with pytest.raises(RuntimeError) as e:
-            @task()
-            class SomeTask():
-                pass
-            SomeTask().run()
-            assert 'use @task, not @task()' in str(e.value)
 
     def test_function_apply_async(self):
         message, queue = add.apply_async([2, 2])

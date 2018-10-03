@@ -1065,7 +1065,7 @@ class BaseTask(object):
         return ''
 
 
-@task
+@task()
 class RunJob(BaseTask):
     '''
     Run a job using ansible-playbook.
@@ -1419,7 +1419,7 @@ class RunJob(BaseTask):
             update_inventory_computed_fields.delay(inventory.id, True)
 
 
-@task
+@task()
 class RunProjectUpdate(BaseTask):
 
     model = ProjectUpdate
@@ -1752,7 +1752,7 @@ class RunProjectUpdate(BaseTask):
         return getattr(settings, 'AWX_PROOT_ENABLED', False)
 
 
-@task
+@task()
 class RunInventoryUpdate(BaseTask):
 
     model = InventoryUpdate
@@ -2160,7 +2160,7 @@ class RunInventoryUpdate(BaseTask):
                 raise
 
 
-@task
+@task()
 class RunAdHocCommand(BaseTask):
     '''
     Run an ad hoc command using ansible.
@@ -2326,7 +2326,7 @@ class RunAdHocCommand(BaseTask):
         return getattr(settings, 'AWX_PROOT_ENABLED', False)
 
 
-@task
+@task()
 class RunSystemJob(BaseTask):
 
     model = SystemJob

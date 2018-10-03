@@ -1,3 +1,4 @@
+import inspect
 import logging
 import importlib
 import sys
@@ -45,10 +46,7 @@ class TaskWorker(BaseWorker):
         args = body.get('args', [])
         kwargs = body.get('kwargs', {})
         _call = TaskWorker.resolve_callable(task)
-        if hasattr(_call, 'wrapped'):
-            # the callable is a wrapped function
-            _call = _call.wrapped
-        else:
+        if inspect.isclass(_call):
             # the callable is a class, e.g., RunJob; instantiate and
             # return its `run()` method
             _call = _call().run

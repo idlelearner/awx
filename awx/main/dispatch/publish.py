@@ -13,7 +13,7 @@ def serialize_task(f):
     return '.'.join([f.__module__, f.__name__])
 
 
-def task(queue=None, exchange_type=None):
+class task:
     """
     Used to decorate a function or class so that it can be run asynchronously
     via the task dispatcher.  Tasks can be simple functions:
@@ -24,7 +24,7 @@ def task(queue=None, exchange_type=None):
 
     ...or classes that define a `run` method:
 
-    @task
+    @task()
     class Adder:
         def run(self, a, b):
             return a + b
@@ -48,90 +48,81 @@ def task(queue=None, exchange_type=None):
         print "Run this everywhere!"
     """
 
-    class TaskBase(object):
+    def __init__(self, queue=None, exchange_type=None):
+        self.queue = queue
+        self.exchange_type = exchange_type
 
-        queue = None
+    def __call__(self, fn=None):
+        queue = self.queue
+        exchange_type = self.exchange_type
 
-        @classmethod
-        def delay(cls, *args, **kwargs):
-            return cls.apply_async(args, kwargs)
+        class PublisherMixin(object):
 
-        @classmethod
-        def apply_async(cls, args=None, kwargs=None, queue=None, uuid=None, **kw):
-            task_id = uuid or str(uuid4())
-            args = args or []
-            kwargs = kwargs or {}
-            queue = queue or getattr(cls.queue, 'im_func', cls.queue) or settings.CELERY_DEFAULT_QUEUE
-            obj = {
-                'uuid': task_id,
-                'args': args,
-                'kwargs': kwargs,
-                'task': cls.name
-            }
-            obj.update(**kw)
-            if callable(queue):
-                queue = queue()
-            if not settings.IS_TESTING(sys.argv):
-                with Connection(settings.BROKER_URL) as conn:
-                    exchange = Exchange(queue, type=exchange_type or 'direct')
-                    producer = Producer(conn)
-                    logger.debug('publish {}({}, queue={})'.format(
-                        cls.name,
-                        task_id,
-                        queue
-                    ))
-                    producer.publish(obj,
-                                     serializer='json',
-                                     compression='bzip2',
-                                     exchange=exchange,
-                                     declare=[exchange],
-                                     delivery_mode="persistent",
-                                     routing_key=queue)
-            return (obj, queue)
+            queue = None
 
-    if inspect.isclass(queue):
-        # if the wrapped object is a class-based task,
-        # add the TaskBase mixin so it has apply_async() and delay()
-        ns = dict(queue.__dict__)
-        ns['name'] = serialize_task(queue)
-        return type(
-            queue.__name__,
-            tuple(list(queue.__bases__) + [TaskBase]),
+            @classmethod
+            def delay(cls, *args, **kwargs):
+                return cls.apply_async(args, kwargs)
+
+            @classmethod
+            def apply_async(cls, args=None, kwargs=None, queue=None, uuid=None, **kw):
+                task_id = uuid or str(uuid4())
+                args = args or []
+                kwargs = kwargs or {}
+                queue = (
+                    queue or
+                    getattr(cls.queue, 'im_func', cls.queue) or
+                    settings.CELERY_DEFAULT_QUEUE
+                )
+                obj = {
+                    'uuid': task_id,
+                    'args': args,
+                    'kwargs': kwargs,
+                    'task': cls.name
+                }
+                obj.update(**kw)
+                if callable(queue):
+                    queue = queue()
+                if not settings.IS_TESTING(sys.argv):
+                    with Connection(settings.BROKER_URL) as conn:
+                        exchange = Exchange(queue, type=exchange_type or 'direct')
+                        producer = Producer(conn)
+                        logger.debug('publish {}({}, queue={})'.format(
+                            cls.name,
+                            task_id,
+                            queue
+                        ))
+                        producer.publish(obj,
+                                         serializer='json',
+                                         compression='bzip2',
+                                         exchange=exchange,
+                                         declare=[exchange],
+                                         delivery_mode="persistent",
+                                         routing_key=queue)
+                return (obj, queue)
+
+        # If the object we're wrapping *is* a class (e.g., RunJob), return
+        # a *new* class that inherits from the wrapped class *and* BaseTask
+        # In this way, the new class returned by our decorator is the class
+        # being decorated *plus* BaseTask as a mixin so cls.apply_async() and
+        # cls.delay() work
+        bases = []
+        ns = {'name': serialize_task(fn), 'queue': queue}
+        if inspect.isclass(fn):
+            bases = list(fn.__bases__)
+            ns.update(fn.__dict__)
+        cls = type(
+            fn.__name__,
+            tuple(bases + [PublisherMixin]),
             ns
         )
+        if inspect.isclass(fn):
+            return cls
 
-    # it's a function-based task, so return the wrapped/decorated
-    # function
-    class wrapped_func(TaskBase):
-
-        def __init__(self, f=None):
-            if inspect.isclass(f) or f is None:
-                # Print a helpful error message if the @task decorator is
-                # used incorrectly
-                if f is None:
-                    err = 'use @task(), not @task'
-                    source = inspect.getsourcefile(queue)
-                    lines, lnum = inspect.findsource(queue)
-                    lnum += 1
-                else:
-                    err = 'use @task, not @task()'
-                    source = inspect.getsourcefile(f)
-                    lines, lnum = inspect.findsource(f)
-                msg = [
-                    source,
-                    '{} {}    # <--- {}'.format(
-                        lnum - 1, lines[lnum - 1].strip(), err
-                    ),
-                    '{} {}'.format(lnum, lines[lnum].strip())
-                ]
-                raise RuntimeError('\n'.join(msg))
-            setattr(f, 'apply_async', self.apply_async)
-            setattr(f, 'delay', self.delay)
-            self.__class__.name = serialize_task(f)
-            self.__class__.queue = queue
-            self.wrapped = f
-
-        def __call__(self, *args, **kwargs):
-            return self.wrapped(*args, **kwargs)
-
-    return wrapped_func
+        # if the object being decorated is *not* a class (it's a Python
+        # function), make fn.apply_async and fn.delay proxy through to the
+        # BaseTask we dynamically created above
+        setattr(fn, 'name', cls.name)
+        setattr(fn, 'apply_async', cls.apply_async)
+        setattr(fn, 'delay', cls.delay)
+        return fn
